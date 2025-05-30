@@ -5,9 +5,9 @@
 # invoke by issuing command "make" from this directory
 #
 
-ROOTDIR=/home/matthaeusw/stem_model/
+ROOTDIR=$(pwd)
 
-CFLAGS_GENERIC = -I /home/matthaeusw/stem_model/
+CFLAGS_GENERIC = -I $ROOTDIR
 LDFLAGS_GENERIC = -lm
 
 CFLAGS = ${CFLAGS_GENERIC}
