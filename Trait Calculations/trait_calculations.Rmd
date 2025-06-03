@@ -1,0 +1,311 @@
+---
+title: "Paleo-trait calculations and exploratory analysis"
+author: "W. J. Matthaeus"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    self_contained: yes
+    mode: selfcontained
+  revealjs::revealjs_presentation:
+    theme: sky
+    highlight: pygments
+    center: true
+---
+
+##### This RMarkdown takes measurements of stomata (l, w, d) and tracheid-scale xylem parameters (D,L, Fp*, etc.) from leaf and wood fossils, respectively, and calculates g_max and xylem water transport traits relating to canopy evapotraspiration and xylem cavitation vulnerability (water potential at cavitation, synthetic vulnerability curve).
+
+##### Load required packages. If this is your first time running these commands, first run "install.packages(c("tidyr",...)) with all the names in the pkgs variable below.
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+pkgs <- c("tidyr","dplyr","readr","stringr","ggplot2","fitdistrplus","poweRlaw","ggprism")
+vapply(pkgs, library, logical(1), character.only = TRUE, logical.return = TRUE)
+```
+
+##### Save constants. Set empirical functions from Wilson et al 2018, Matthaeus et al. 2022 Figure 3.  Also, change data_directory to a string containing the path to your data directory.
+
+```{r set constants}
+  data_directory <- "~/Dropbox/bgc_work/stem_bgc/model_school/"
+
+  #gmax constants
+  
+  #
+  f_eudicots<-rlang::as_function(~1.538*(.x)^(-0.402))
+ 
+  #vesselless angiosperms 0.5916x-0.367
+  f_vesselless_angiosperms<-rlang::as_function(~0.591*(.x)^(-0.367))
+  #seedless vascular (-P. aquilinum) 0.0419x-0.81
+  f_seedless_vascular<-rlang::as_function(~0.0419*(.x)^(-0.81))
+  #conifer stems 0.2307x-0.542
+  f_conifer<-rlang::as_function(~0.2307*(.x)^(-0.542))
+  
+  f<-f_eudicots
+  
+  Fc_cbp <- 0.5
+  Fc_scalariform <- 1
+```
+
+##### Set working directory to location of files for the Course. Read in stomatal measurements using read_excel command from readxl. Set columns containing number to 'numeric' type. (You'll need to download `Wilson2023_pit_scale_inputs.xlsx` and put it in your data directory. It is always a good idea to separately open input data and look at them at this stage, as long as the input data isn't unmanageably large to view in Excel, etc.)
+
+```{r}
+    setwd(data_directory)
+
+    stomata <- readxl::read_excel(path = "Wilson2018_stomatal_measurements.xlsx",col_names = TRUE)
+    # colnames(pit_scale)
+   
+    stomata <- stomata %>%
+      
+      mutate(across(c("stomatal length (um)",	"stomatal width (um)",
+    "stomatal length to aperture length scaler",	"Aperture length (um)",	"stomatal width to aperture width scaler",	"Aperture width (um)",
+    '"Stomatal size", um^2',	"stomatal pore area (um^2)",	"stomatal pore depth (um)",	"Stomatal density, mm^-2",	"Stomatal index",
+    "E density",	"Stomatal pore length (m)",	"Stomatal pore area Amax (m2)",	"Stomatal pore depth (m)",	"Density (m)",	"Gmax mol  m-2 s-1",
+    "Gmax m s-1",	"Gmax mmol  m-2 s-1" ), as.numeric)) %>%
+      
+      mutate(across(c("Age (Mya)","Species",	"Location of cuticle",	"Group","Gathered by"), as.factor))
+    
+  
+```
+
+Redo the some calculations in Wilson2018 excel sheet for comparison. Pore area is estimated as an ellipse. Pore depth is assumed to be one half guard cell width. Convert everything from microns to meters.
+
+```{r}
+
+stomata <- stomata %>% mutate(
+                              pore_area_um2 = pi * (`Aperture length (um)`/2) * (`Aperture width (um)`/2),
+                              pore_depth_um = (`stomatal width (um)` -  `Aperture width (um)`)/2,
+                              
+                              pore_area_m2 = pore_area_um2 * 10^(-12), #why
+                              pore_depth_m = pore_depth_um * 10^(-6),
+                              stomatal_density__m2 = `Stomatal density, mm^-2`*10^6,
+                              
+                              #these are the units of the Franks and Beerling model
+                              gmax_mol__m2s =       (stomatal_density__m2*(0.0000249)*pore_area_m2)/((0.02446*(pore_depth_m+(pi/2)*(sqrt(pore_area_m2/pi))))),
+                              
+                              #these are the units needed by Paleo-BGC
+                              gmax_m__s =(gmax_mol__m2s/0.04)/1000,
+                              
+                              #these are commonly reported units in literature
+                              gmax_mmol__m2s = gmax_mol__m2s*1000
+                              
+                              )
+
+stomata$gmax_m__s == stomata$`Gmax m s-1`
+```
+
+
+Make some plots!
+```{r}
+ggplot(stomata)+geom_histogram(aes(x=`Gmax m s-1`))
+ggplot(stomata)+geom_point(aes(x=`stomatal length (um)`, y=`Gmax m s-1`))
+```
+
+
+##### Tracheids, Ap and Psi_P_50 Read in pit scale inputs using read_excel command from readxl. Set type of numeric columns. (You'll need to download `pit_scale_inputs.xlsx` and put it in your data directory. It is always a good idea to separately open input data and look at them at this stage, as long as the input data isn't unmanageable large.)
+
+```{r}
+setwd(data_directory)
+
+    pit_scale <- readxl::read_excel(path = "Wilson2018_stomatal_measurements.xlsx",col_names = TRUE)
+    # colnames(pit_scale)
+    
+    pit_scale <- pit_scale%>%
+      mutate(across(c("Mean pit diameter (µm)"  ,                
+          "Pit long axis (µm)" ,                     
+          "Pit short axis (µm)"  ,                   
+          "Pits per mm tracheid length"    ,         
+          "Pit membrane fractional area"   ,         
+          "Pit membrane area per mm tracheid (mm^2)",
+          "Number of pits measured", 
+          "Tracheid Diameter (µm)",
+          "Minimum Tracheid Diameter (µm)",
+          "Tracheid Length (mm)",                   
+          "Minimum Tracheid Length (mm)" ), as.numeric)) %>%
+      mutate(across(c("Taxon"  ,                
+                      "Organ" ,                     
+                      "Pit type"  ,
+                      "Pit arrangement",
+                      "Sample",
+                      "Upscale Mode"), as.factor))
+```
+
+##### Setup a new categorical variable, Group, based on existing Taxon variable.
+
+```{r}
+pit_scale$Group<-"NA"
+
+pit_scale[grep("Corda*", pit_scale$Taxon),]$Group<-"Cordaitalean"
+pit_scale[grep("Lepi*",  pit_scale$Taxon),]$Group<-"Lycopsid"
+pit_scale[grep("Medu*",  pit_scale$Taxon),]$Group<-"Medullosan"
+pit_scale[grep("Psaro*", pit_scale$Taxon),]$Group<-"Psaronius"
+pit_scale[grep("Sphen*|Arthr*",pit_scale$Taxon),]$Group<-"Sphenophyte"
+pit_scale[grep("Gibl*|Macd*|Thuc*",pit_scale$Taxon),]$Group<-"Extinct Conifer"
+```
+
+##### Do some basic calculations: 
+- estimate standard deviation for samplesXmeasurements with no measured variation available.
+- convert mm to microns
+- area of tracheid wall (modeled as right circular cylinder)
+
+```{r}
+pit_scale <- pit_scale %>% mutate(Diameter_sd =  (`Tracheid Diameter (µm)` - `Minimum Tracheid Diameter (µm)`)/2,
+                                  l = `Tracheid Length (mm)`,
+                         l_sd = (`Tracheid Length (mm)` - `Minimum Tracheid Length (mm)`)/2,
+                         d_mm = `Tracheid Diameter (µm)`*(1/1000),
+                         d_sd_mm = Diameter_sd*(1/1000),
+                        mean_At = d_mm*pi*`Tracheid Length (mm)`)
+    
+    unique(pit_scale$`Upscale Mode`)
+    unique(pit_scale$`Pit type`)
+```
+
+##### Set contact fraction based on pit type.
+
+```{r}
+pit_scale <- pit_scale %>% 
+      mutate( Fc = case_when(`Pit type` == "CBP" ~ Fc_cbp,
+                             `Pit type` == "Scalariform" ~ Fc_scalariform))
+```
+
+##### Calculate Ap depending on variable `Upscale Mode`, which is set manually in the input file. Back calculate Fp to check work for samples where measurements are made on pits and upscaled using length. Calculate Fp based on area and patch in the length based sample values. Calculate mean cavitation water potential based on Ap and current selected empirical function f(). (This is an example of a string of data manipulations using the 'tidyR' style)
+
+```{r}
+pit_scale <- pit_scale %>%
+  
+    mutate(mean_Ap = case_when(
+        `Upscale Mode` == 'per length' ~ 
+          Fc*`Tracheid Length (mm)`*`Pit membrane area per mm tracheid (mm^2)`,
+        `Upscale Mode` == 'per area' ~ 
+          `Pit membrane fractional area`*mean_At*Fc,
+        .default = as.numeric(NA))) %>%
+  
+    mutate(backcalculated_Fp = case_when(
+        `Upscale Mode` == 'per length' ~
+          mean_Ap/mean_At/Fc )) %>%
+  
+    mutate(Fp = case_when(
+      `Upscale Mode` == 'per length' ~ backcalculated_Fp,
+      `Upscale Mode` == 'per area' ~ `Pit membrane fractional area`,
+      .default = as.numeric(NA))) %>%
+  
+    mutate(mean_PsiC_scalar = f(mean_Ap))
+```
+
+##### Look at a histogram of calculated values. Currently set to Fp to check if the two data streams are introducing artifical differences. Change Fp to another variable of interest and plot the results. You can also replace geom_histogram with geom_point to make a scatterplot and look at the relationship between two variables. See ggplot2.tidyverse.org for additional information about ggplot. 
+
+```{r}
+ggplot(pit_scale)+geom_histogram(aes(x=Fp, fill = `Upscale Mode`))  
+```
+
+##### Now we have a central tendency for cavitation water potential, but we still need a measure of variation. In order to get this, we simulate normallky distributed data based on the mean and s.d. of the measured inputs and redo these calculations on the distributions, assuming covariation between tracheid-scale paraemters (D,L,Ap). 
+
+##### This process is done separately for each sample, thus the series of `for(){}` loops.
+
+##### First set up a list column for each variable. This way you can check distributions for each variable separately.
+
+```{r}
+##for each variable, setup a column of lists in the dataframe
+    #tracheid diameter: D
+    #make list col, each row is a list with output of rnorm
+    pit_scale$D<-rep(list(item = NA), length(pit_scale$d_mm))
+    for(i in 1:length(pit_scale$d_mm)){
+      pit_scale$D[i] <- list(rnorm(n=10000, mean = pit_scale$d_mm[i], sd = pit_scale$d_sd_mm[i]))
+    }
+    #check a single distribution, for example D
+    # for(i in 1:length(pit_scale$d_mm)){
+    #   print(ggplot()+geom_histogram(aes(x=unlist(pit_scale$D[i]))))
+    # }
+    
+    ##
+    #repeat for L
+    pit_scale$L<-rep(list(item = NA), length(pit_scale$l))
+    for(i in 1:length(pit_scale$l)){
+      pit_scale$L[i] <- list(rnorm(n=10000, mean = pit_scale$l[i], sd = pit_scale$l_sd[i]))
+    }
+    
+    ##
+    #calculate At array
+    pit_scale$At_array <-rep(list(item = NA), length(pit_scale$l))
+    for(i in 1:length(pit_scale$l)){
+      pit_scale$At_array[i] <- list(unlist(pit_scale$L[i])*unlist(pit_scale$D[i])*pi)
+    }
+    
+    ##
+    #calculate Ap array
+    pit_scale$Ap_array <-rep(list(item = NA), length(pit_scale$l))
+    for(i in 1:length(pit_scale$l)){
+      pit_scale$Ap_array[i] <- list(unlist(pit_scale$At_array[i])*pit_scale$Fp[i]*pit_scale$Fc[i])
+    }
+    
+    #calculate Psi_c array (this could be passed directly to paleo-bgc)
+    pit_scale$PsiC_array <-rep(list(item = NA), length(pit_scale$l))
+    for(i in 1:length(pit_scale$l)){
+      pit_scale$PsiC_array[i] <- list(
+                            f(unlist(pit_scale$Ap_array[i]))
+                            )
+    }
+```
+
+##### Allocate numeric variables for the satistics of the normal distributions we will fit to the calculated distribution of cavitation water potential (i.e., simulated vulnerability curve). Fit array of normal distributions and get parameters.
+
+```{r}
+pit_scale$mean_PsiC <- as.numeric(NA)
+pit_scale$sd_PsiC <- as.numeric(NA)
+pit_scale$mean_Ap_array <- as.numeric(NA)
+pit_scale$sd_Ap_array <- as.numeric(NA)
+
+for(i in 1:length(pit_scale$l)){
+    tempPsiC_array <- unlist(pit_scale$PsiC_array[i])
+    NAlocs<-is.na(tempPsiC_array)
+    print(paste("there were",length(which(NAlocs)),
+                "NAs from ", pit_scale$Taxon[i], " ",  pit_scale$Sample[i]))
+    noNA <- tempPsiC_array[!NAlocs]
+    temp_fit_norm <- fitdist(noNA, distr = "norm", method = "mle")
+    pit_scale$mean_PsiC[i] <- temp_fit_norm$estimate["mean"]
+    pit_scale$sd_PsiC[i] <- temp_fit_norm$sd["mean"]
+}
+```
+
+##### Write the mean and sd of simulated distribution of cavitation water potential to a `.csv` file. (Save the filename using the date and time.)
+
+```{r}
+fn<-"epc_stem_inputs_"
+fn<-paste0(fn,(date()%>%str_remove_all("[ :]")),".csv")
+
+pit_scale %>% 
+  dplyr::select(Taxon, Sample, Group,`Pit type`, mean_Ap,mean_PsiC, sd_PsiC) %>% write_csv(file = fn)
+
+fn<-paste0("summarized_",fn)
+pit_scale %>%  group_by(Group, `Pit type`)%>%
+  summarise(mean_PsiC = mean(mean_PsiC),
+            sd_PsiC = mean(sd_PsiC),
+            mean_Ap = mean(mean_Ap)) %>%
+  dplyr::select(Group,`Pit type`, mean_Ap,mean_PsiC, sd_PsiC) %>%
+  write_csv(file = fn)
+```
+
+##### Below is code to check the goodness of fit of the normal distribution, as compared to other candidate distributions for the calculated cavitation water potential, which is a non-linear function of several (assumed) normal inputs. The fits are all essentially of the same quality, which is not a surprise since we prescribed the input distribution shapes.
+
+```{r}
+plotdist(noNA, histo=T, demp=T)
+descdist(noNA, boot=1000)
+    
+for(i in 1:length(pit_scale$l)){
+  
+  plotname<- paste(pit_scale$Taxon[i],  pit_scale$Sample[i], "fitPlot.pdf")
+  tempPsiC_array <- unlist(pit_scale$PsiC_array[i])
+  NAlocs<-is.na(tempPsiC_array)    
+  par(mfrow = c(2, 2), mar = c(4, 4, 2, 1))
+  fw <- fitdist(noNA, distr = "weibull")
+  fg <- fitdist(noNA, "gamma")
+  fln <- fitdist(noNA, "lnorm")
+  fn <- fitdist(noNA, "norm")
+  plot.legend <- c("Weibull", "normal", "gamma")
+  denscomp(list(fw, fn, fg), legendtext = plot.legend)
+  qqcomp(list(fw, fn, fg), legendtext = plot.legend)
+  cdfcomp(list(fw, fn, fg), legendtext = plot.legend)
+  ppcomp(list(fw, fn, fg), legendtext = plot.legend)
+
+  dev.off()
+  
+  }
+```
+
