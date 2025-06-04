@@ -26,4 +26,8 @@ header<-c("ws.soilw", "wf.canopyw_evap",
 
 sim_output_dailiy<-read_tsv("IG_600_21_A_ebf.dayout.ascii",col_names = header)
 
+sim_output_dailiy$sim_yearday <- seq(1,length(sim_output_dailiy$ws.soilw))%%365
+ggplot(sim_output_dailiy)+geom_point(aes(x=sim_yearday,y=epv.gl_s_sun))
+
+
 ggplot(sim_output_dailiy)+geom_point(aes(x=ws.soilw,y=epv.gl_s_sun))
