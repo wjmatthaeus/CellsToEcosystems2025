@@ -35,7 +35,7 @@ ECOPHYS       EBF (evergreen broadleaf forest - tropical)
 23.4          (m2/kgC)  canopy average specific leaf area (projected area basis)
 2.0           (DIM)     ratio of shaded SLA:sunlit SLA
 0.06          (DIM)     fraction of leaf N in Rubisco
-0.0119        (m/s)     maximum stomatal conductance (projected area basis)
+0.0238        (m/s)     maximum stomatal conductance (projected area basis)
 0.00001       (m/s)     cuticular conductance (projected area basis)
 0.0908        (m/s)     boundary layer conductance (projected area basis)
 -0.5          (MPa)     leaf water potential: start of conductance reduction
