@@ -41,7 +41,7 @@ ECOPHYS       EBF (evergreen broadleaf forest - tropical)
 -0.5          (MPa)     leaf water potential: start of conductance reduction
 -2.5          (MPa)     leaf water potential: complete conductance reduction
 1000.0        (Pa)      vapor pressure deficit: start of conductance reduction
-3000.0        (Pa)      vapor pressure deficit: complete conductance reduction
+4500.0        (Pa)      vapor pressure deficit: complete conductance reduction
 999.1         (um)      maximum mesophyll pathlength
 508.0         (um)      minimum mesophyll pathlength
 -7.67         (MPa)     psi_p_50
